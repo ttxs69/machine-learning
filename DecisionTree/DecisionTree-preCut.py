@@ -176,7 +176,7 @@ def calcInfoGain(dataSet ,featList, i, baseEntropy):
     return infoGain
 
 
-def chooseBestFeatureToSplit(dataSet, labels):
+def chooseBestFeatureToSplit(dataSet):
     """
     选择最好的数据集划分特征，根据信息增益值来计算，可处理连续值
     :param dataSet:
@@ -233,7 +233,7 @@ def chooseBestFeatureToSplit(dataSet, labels):
         return bestFeature
 
 
-def createDataSet(k):
+def createDataSet():
     data = pd.read_csv("iris.data")
     loandata = pd.DataFrame(data)
     data = data.sample(
@@ -308,7 +308,7 @@ def createTree(dataSet, labels):
         return node
 
     # 选择最好的划分特征，得到该特征的下标
-    bestFeat = chooseBestFeatureToSplit(dataSet=dataSet, labels=labels)
+    bestFeat = chooseBestFeatureToSplit(dataSet)
 
     # 得到最好特征的名称
     bestFeatLabel = ''
@@ -362,21 +362,81 @@ def createTree(dataSet, labels):
 
         return root
 
-    # 离散值处理
-    else:
-        # 将本次划分的特征值从列表中删除掉
-        del (labels[bestFeat])
-        # 唯一化，去掉重复的特征值
-        uniqueVals = set(featValues)
-        # 遍历所有的特征值
-        for value in uniqueVals:
-            # 得到剩下的特征标签
-            subLabels = labels[:]
-            # 递归调用，将数据集中该特征等于当前特征值的所有数据划分到当前节点下，递归调用时需要先将当前的特征去除掉
-            subTree = createTree(splitDataSet(dataSet=dataSet, axis=bestFeat, value=value), subLabels)
-            # 将子树归到分叉处下
-            myTree[bestFeatLabel][value] = subTree
-        return myTree
+
+# 预剪枝
+def preCut(root,dataSet,testDataSet,labels,preCorrectRadio):
+
+    # 如果全部都是一个类别，那么剪枝结束
+    # 拿到所有数据集的分类标签
+    classList = [example[-1] for example in dataSet]
+
+    # 统计第一个标签出现的次数，与总标签个数比较，如果相等则说明当前列表中全部都是一种标签，此时停止划分
+    if classList.count(classList[0]) == len(classList):
+        root.label = classList[0]
+        return
+
+    # 如果数据在所有属性上的取值全部相等，就无法继续划分，此时停止划分
+    # 取第一行的数据的所有特征，与其他所有数据的特征比较，如果相等则说明取值全部相等，此时停止划分
+    # 相等标志
+    equalFlag = 1
+    valueList = dataSet[0][:-1]
+    for instance in dataSet:
+        # 如果有不相等的，相等标志置为0
+        if not (valueList == instance[:-1]).all():
+            equalFlag = 0
+            break
+    # 如果全部相等，那么返回占大多数的类别
+    if equalFlag:
+        root.label = majorityCnt(classList)
+        return
+
+    # 选择最好的划分特征，得到该特征的下标
+    bestFeat = chooseBestFeatureToSplit(dataSet)
+
+    # 如果是元组的话，说明此时是连续值
+    if isinstance(bestFeat, tuple):
+        root.feature = bestFeat[0]
+        root.value = bestFeat[1]
+        root.label = None
+
+        # 暂时保存root的类别
+        label = root.label
+
+        # 将连续值划分为不大于当前划分点和大于当前划分点两部分
+        eltDataSet, gtDataSet = splitDataSetForSeries(dataSet, root.feature, root.value)
+
+        # 拿到所有数据集的分类标签
+        eltClassList = [example[-1] for example in eltDataSet]
+        leftNode = Node()
+        leftNode.label = majorityCnt(eltClassList)
+        root.leftChild = leftNode
+
+        # 拿到所有数据集的分类标签
+        gtClassList = [example[-1] for example in gtDataSet]
+        rightNode = Node()
+        rightNode.label = majorityCnt(gtClassList)
+        root.rightChild = rightNode
+
+        # 计算测试集的正确率
+        correctCount = 0
+        for instance in testDataSet:
+            label = testTree(root,instance)
+            if instance[-1] == label:
+                correctCount += 1
+        newCorrectRadio = correctCount / len(testDataSet)
+
+        # 比较正确率的大小
+        #如果正确率增加 ，那么就进行划分
+        if newCorrectRadio > preCorrectRadio:
+            preCut(root.leftChild,eltDataSet,testDataSet,labels,newCorrectRadio)
+            preCut(root.rightChild,gtDataSet,testDataSet,labels,newCorrectRadio)
+        # 否则，就不进行划分
+        else:
+            root.label = label
+            root.leftChild = None
+            root.rightChild = None
+            root.feature = None
+            root.value = None
 
 
 # 打印树
@@ -400,22 +460,32 @@ def testTree(tree,data):
         return testTree(tree.leftChild,data)
 
 
+# 计算测试集上的正确率：
+def calcTestCorrectRadio(root, testDataSet):
+    correctCount = 0
+    for instance in testDataSet:
+        label = testTree(root, instance)
+        if instance[-1] == label:
+            correctCount += 1
+    correctCountRadio = correctCount / len(testDataSet)
+    return correctCountRadio
+
+
 if __name__ == '__main__':
     """
     处理连续值时候的决策树
     """
-    for i in range(5):
-        dataSet, testDataSet, labels,  = createDataSet(i)
-        # chooseBestFeatureToSplit(dataSet, labels)
-        myTree = createTree(dataSet, labels)
-        # printTree(myTree)
-        # 测试集总数
-        testDataSetTotal = len(testDataSet)
-        # 统计测试集正确分类数
-        correctCount = 0
-        for instance in testDataSet:
-            label = testTree(myTree,instance)
-            if instance[-1] == label:
-                correctCount += 1
-        print(correctCount/testDataSetTotal)
-
+    dataSet, testDataSet, labels,  = createDataSet()
+    # 测试集总数
+    testDataSetTotal = len(testDataSet)
+    # 创建树根
+    root = Node()
+    # 拿到所有数据集的分类标签
+    classList = [example[-1] for example in dataSet]
+    root.label = majorityCnt(classList)
+    # 统计测试集正确分类数
+    correctCountRadio = calcTestCorrectRadio(root, testDataSet)
+    # 开始剪枝
+    preCut(root,dataSet,testDataSet,labels,correctCountRadio)
+    correctCountRadio = calcTestCorrectRadio(root,testDataSet)
+    print(correctCountRadio)

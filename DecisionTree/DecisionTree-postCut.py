@@ -233,7 +233,7 @@ def chooseBestFeatureToSplit(dataSet, labels):
         return bestFeature
 
 
-def createDataSet(k):
+def createDataSet():
     data = pd.read_csv("iris.data")
     loandata = pd.DataFrame(data)
     data = data.sample(
@@ -378,6 +378,41 @@ def createTree(dataSet, labels):
             myTree[bestFeatLabel][value] = subTree
         return myTree
 
+# 后剪枝
+def postCut(root,node,dataSet,testDataSet):
+    # 如果不是叶子节点
+    if node.label is None:
+        # 对左右子树进行后剪枝
+        postCut(root, node.leftChild,dataSet,testDataSet)
+        postCut(root, node.rightChild,dataSet,testDataSet)
+        # 计算当前的测试集正确率
+        curCorrectRadio = calcTestCorrectRadio(root,testDataSet)
+        # 暂时保存当前节点的值
+        left = node.leftChild
+        right = node.rightChild
+        feature = node.feature
+        value = node.value
+        # 剪枝
+        classList = [example[-1] for example in dataSet]
+        node.label = majorityCnt(classList)
+        node.leftChild = None
+        node.rightChild = None
+        node.feature = None
+        node.value = None
+        # 重新计算正确率
+        newCorrectRadio = calcTestCorrectRadio(root,testDataSet)
+        # 比较正确率,如果剪枝后的正确率高，就进行剪枝，否则，不进行。
+        if newCorrectRadio > curCorrectRadio:
+            return
+        else:
+            node.label = None
+            node.leftChild = left
+            node.rightChild = right
+            node.feature = feature
+            node.value = value
+        return
+
+
 
 # 打印树
 def printTree(root):
@@ -400,22 +435,27 @@ def testTree(tree,data):
         return testTree(tree.leftChild,data)
 
 
+# 计算测试集上的正确率：
+def calcTestCorrectRadio(root, testDataSet):
+    correctCount = 0
+    for instance in testDataSet:
+        label = testTree(root, instance)
+        if instance[-1] == label:
+            correctCount += 1
+    correctCountRadio = correctCount / len(testDataSet)
+    return correctCountRadio
+
+
 if __name__ == '__main__':
     """
     处理连续值时候的决策树
     """
-    for i in range(5):
-        dataSet, testDataSet, labels,  = createDataSet(i)
-        # chooseBestFeatureToSplit(dataSet, labels)
-        myTree = createTree(dataSet, labels)
-        # printTree(myTree)
-        # 测试集总数
-        testDataSetTotal = len(testDataSet)
-        # 统计测试集正确分类数
-        correctCount = 0
-        for instance in testDataSet:
-            label = testTree(myTree,instance)
-            if instance[-1] == label:
-                correctCount += 1
-        print(correctCount/testDataSetTotal)
+    dataSet, testDataSet, labels,  = createDataSet()
+    # chooseBestFeatureToSplit(dataSet, labels)
+    myTree = createTree(dataSet, labels)
+    correctRadio = calcTestCorrectRadio(myTree, testDataSet)
+    print(correctRadio)
+    postCut(myTree,myTree,dataSet,testDataSet)
+    correctRadio = calcTestCorrectRadio(myTree,testDataSet)
+    print(correctRadio)
 

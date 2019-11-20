@@ -363,6 +363,116 @@ def createTree(dataSet, labels):
         return root
 
 
+def createTree(dataSet, labels):
+    """
+    创建决策树
+    :param dataSet: 数据集
+    :param labels: 特征标签
+    :return:
+    """
+    # 拿到所有数据集的分类标签
+    classList = [example[-1] for example in dataSet]
+
+    # 统计第一个标签出现的次数，与总标签个数比较，如果相等则说明当前列表中全部都是一种标签，此时停止划分
+    if classList.count(classList[0]) == len(classList):
+        node = Node()
+        node.label = classList[0]
+        return node
+
+    # 如果数据在所有属性上的取值全部相等，就无法继续划分，此时停止划分
+    # 取第一行的数据的所有特征，与其他所有数据的特征比较，如果相等则说明取值全部相等，此时停止划分
+    # 相等标志
+    equalFlag = 1
+    valueList = dataSet[0][:-1]
+    for instance in dataSet:
+        # 如果有不相等的，相等标志置为0
+        if not (valueList==instance[:-1]).all():
+            equalFlag = 0
+            break
+    # 如果全部相等，那么返回占大多数的类别
+    if equalFlag:
+        node = Node()
+        node.label = majorityCnt(classList)
+        return node
+
+    # 计算第一行有多少个数据，如果只有一个的话说明所有的特征属性都遍历完了，剩下的一个就是类别标签
+    if len(dataSet[0]) == 1:
+        # 返回剩下标签中出现次数较多的那个
+        node = Node()
+        node.label = majorityCnt(classList)
+        return node
+
+    # 选择最好的划分特征，得到该特征的下标
+    bestFeat = chooseBestFeatureToSplit(dataSet=dataSet)
+
+    # 得到最好特征的名称
+    bestFeatLabel = ''
+
+    # 记录此刻是连续值还是离散值,1连续，2离散
+    flagSeries = 0
+
+    # 如果是连续值，记录连续值的划分点
+    midSeries = 0.0
+
+    # 如果是元组的话，说明此时是连续值
+    if isinstance(bestFeat, tuple):
+        root = Node()
+        root.feature = bestFeat[0]
+        root.value = bestFeat[1]
+        # 重新修改分叉点信息
+        bestFeatLabel = str(labels[bestFeat[0]]) + '小于' + str(bestFeat[1]) + '?'
+        # 得到当前的划分点
+        midSeries = bestFeat[1]
+        # 得到下标值
+        bestFeat = bestFeat[0]
+        # 连续值标志
+        flagSeries = 1
+    else:
+        # 得到分叉点信息
+        bestFeatLabel = labels[bestFeat]
+        # 离散值标志
+        flagSeries = 0
+
+    # 使用一个字典来存储树结构，分叉处为划分的特征名称
+    # myTree = {bestFeatLabel: {}}
+
+    # 得到当前特征标签的所有可能值
+    featValues = [example[bestFeat] for example in dataSet]
+
+    # 连续值处理
+    if flagSeries:
+        # 将连续值划分为不大于当前划分点和大于当前划分点两部分
+        eltDataSet, gtDataSet = splitDataSetForSeries(dataSet, bestFeat, midSeries)
+        # 得到剩下的特征标签
+        subLabels = labels[:]
+        # 递归处理小于划分点的子树
+        # subTree = createTree(eltDataSet, subLabels)
+        # myTree[bestFeatLabel]['小于'] = subTree
+        root.leftChild = createTree(eltDataSet,subLabels)
+
+        # 递归处理大于当前划分点的子树
+        # subTree = createTree(gtDataSet, subLabels)
+        # myTree[bestFeatLabel]['大于'] = subTree
+        root.rightChild = createTree(gtDataSet,subLabels)
+
+        return root
+
+    # 离散值处理
+    else:
+        # 将本次划分的特征值从列表中删除掉
+        del (labels[bestFeat])
+        # 唯一化，去掉重复的特征值
+        uniqueVals = set(featValues)
+        # 遍历所有的特征值
+        for value in uniqueVals:
+            # 得到剩下的特征标签
+            subLabels = labels[:]
+            # 递归调用，将数据集中该特征等于当前特征值的所有数据划分到当前节点下，递归调用时需要先将当前的特征去除掉
+            subTree = createTree(splitDataSet(dataSet=dataSet, axis=bestFeat, value=value), subLabels)
+            # 将子树归到分叉处下
+            myTree[bestFeatLabel][value] = subTree
+        return myTree
+
 # 预剪枝
 def preCut(root,dataSet,testDataSet,labels,preCorrectRadio):
 
@@ -478,6 +588,8 @@ if __name__ == '__main__':
     dataSet, testDataSet, labels,  = createDataSet()
     # 测试集总数
     testDataSetTotal = len(testDataSet)
+    myTree = createTree(dataSet, labels)
+    print(calcTestCorrectRadio(myTree,testDataSet))
     # 创建树根
     root = Node()
     # 拿到所有数据集的分类标签
@@ -489,3 +601,4 @@ if __name__ == '__main__':
     preCut(root,dataSet,testDataSet,labels,correctCountRadio)
     correctCountRadio = calcTestCorrectRadio(root,testDataSet)
     print(correctCountRadio)
+
